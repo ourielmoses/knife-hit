@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "KnifeHit"
+rootProject.name = "HelloWorld"
 include(":app")
