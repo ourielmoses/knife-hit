@@ -10,7 +10,17 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
 import com.knifehit.game.model.KnifeSkin
 
-fun Long.toComposeColor(): Color = Color(this.toULong())
+fun Int.toComposeColor(): Color = (this.toLong() and 0xFFFFFFFFL).toComposeColor()
+
+fun Long.toComposeColor(): Color {
+    val c = this.toInt()
+    return Color(
+        red = ((c ushr 16) and 0xFF) / 255f,
+        green = ((c ushr 8) and 0xFF) / 255f,
+        blue = (c and 0xFF) / 255f,
+        alpha = ((c ushr 24) and 0xFF) / 255f,
+    )
+}
 
 fun DrawScope.drawKnife(
     skin: KnifeSkin,

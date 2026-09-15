@@ -19,11 +19,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knifehit.game.i18n.GameFontFamily
+import com.knifehit.game.render.toComposeColor
 
-val NeonCyan = Color(0xFF00F5FF)
-val NeonMagenta = Color(0xFFFF2BD6)
-val NeonLime = Color(0xFF39FF14)
-val PanelBg = Color(0xE610141C)
+val NeonCyan = 0xFF00F5FF.toComposeColor()
+val NeonMagenta = 0xFFFF2BD6.toComposeColor()
+val NeonLime = 0xFF39FF14.toComposeColor()
+val PanelBg = 0xE610141C.toComposeColor()
 
 @Composable
 fun NeonButton(
@@ -38,10 +39,10 @@ fun NeonButton(
         enabled = enabled,
         modifier = modifier,
         colors = ButtonDefaults.buttonColors(
-            containerColor = Color(0xFF151A24),
+            containerColor = 0xFF151A24.toComposeColor(),
             contentColor = accent,
-            disabledContainerColor = Color(0xFF22262E),
-            disabledContentColor = Color(0xFF66707A),
+            disabledContainerColor = 0xFF22262E.toComposeColor(),
+            disabledContentColor = 0xFF66707A.toComposeColor(),
         ),
         shape = RoundedCornerShape(14.dp),
     ) {
@@ -74,7 +75,7 @@ fun NeonTitle(text: String, modifier: Modifier = Modifier, color: Color = NeonCy
 fun OverlayScrim(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Box(
         modifier
-            .background(Color(0xCC070B14))
+            .background(0xCC070B14.toComposeColor())
             .padding(20.dp),
     ) { content() }
 }
@@ -98,7 +99,7 @@ fun WalletChip(label: String, value: Int, color: Color, onClick: (() -> Unit)? =
         fontFamily = GameFontFamily,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier
-            .background(Color(0x66101820), RoundedCornerShape(20.dp))
+            .background(0x66101820.toComposeColor(), RoundedCornerShape(20.dp))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         fontSize = 14.sp,

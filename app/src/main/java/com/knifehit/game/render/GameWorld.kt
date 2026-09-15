@@ -184,7 +184,7 @@ private fun DrawScope.drawPlayfield(
             val px = x - engine.particles.vx[i] * 0.02f
             val py = y - engine.particles.vy[i] * 0.02f
             drawLine(
-                color = Color(engine.particles.argb[i]).copy(alpha = a),
+                color = engine.particles.argb[i].toComposeColor().copy(alpha = a),
                 start = Offset(px, py),
                 end = Offset(x, y),
                 strokeWidth = 4f,
@@ -206,8 +206,8 @@ private fun DrawScope.drawCollectible(
     when (c.kind) {
         PickupKind.COIN -> {
             rotate(t * 120f, pivot = p) {
-                drawCircle(Color(0xFFFFD24A), 16f, p)
-                drawCircle(Color(0xFFFFF0B0), 16f, p, style = Stroke(3f))
+                drawCircle(0xFFFFD24A.toComposeColor(), 16f, p)
+                drawCircle(0xFFFFF0B0.toComposeColor(), 16f, p, style = Stroke(3f))
             }
         }
         PickupKind.DIAMOND -> {
@@ -217,12 +217,12 @@ private fun DrawScope.drawCollectible(
             path.lineTo(p.x, p.y + 18f)
             path.lineTo(p.x - 12f, p.y)
             path.close()
-            drawPath(path, Color(0xFF7AF0FF).copy(alpha = 0.7f + 0.3f * ((sin(t * 8f) + 1f) * 0.5f)))
+            drawPath(path, 0xFF7AF0FF.toComposeColor().copy(alpha = 0.7f + 0.3f * ((sin(t * 8f) + 1f) * 0.5f)))
         }
         PickupKind.SPEED -> {
             val s = 1f + 0.12f * sin(t * 8f)
-            drawLine(Color(0xFF39FF14), Offset(p.x - 10f * s, p.y + 8f), Offset(p.x, p.y - 12f * s), 5f, StrokeCap.Round)
-            drawLine(Color(0xFF39FF14), Offset(p.x, p.y - 12f * s), Offset(p.x + 10f * s, p.y + 8f), 5f, StrokeCap.Round)
+            drawLine(0xFF39FF14.toComposeColor(), Offset(p.x - 10f * s, p.y + 8f), Offset(p.x, p.y - 12f * s), 5f, StrokeCap.Round)
+            drawLine(0xFF39FF14.toComposeColor(), Offset(p.x, p.y - 12f * s), Offset(p.x + 10f * s, p.y + 8f), 5f, StrokeCap.Round)
         }
     }
 }
@@ -261,7 +261,7 @@ private fun DrawScope.drawScoreDigits(engine: GameEngine) {
     val gap = 16f
     val total = s.length * gap
     s.forEachIndexed { i, ch ->
-        drawDigit(ch, Offset(cx - total / 2f + i * gap, y), w, Color(0xFFEEF7FF))
+        drawDigit(ch, Offset(cx - total / 2f + i * gap, y), w, 0xFFEEF7FF.toComposeColor())
     }
 }
 

@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.knifehit.game.render.toComposeColor
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -43,9 +44,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
-                    primary = Color(0xFF00F5FF),
-                    background = Color(0xFF070B14),
-                    surface = Color(0xFF10141C),
+                    primary = 0xFF00F5FF.toComposeColor(),
+                    background = 0xFF070B14.toComposeColor(),
+                    surface = 0xFF10141C.toComposeColor(),
                 ),
             ) {
                 KnifeHitApp(session)

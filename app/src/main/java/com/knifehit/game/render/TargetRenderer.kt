@@ -133,17 +133,17 @@ fun DrawScope.drawBossExtras(
     val pulse = (0.5f + 0.5f * kotlin.math.sin(t * 4f))
     when (worldId) {
         1 -> {
-            drawCircle(Color(0xFF2A5A20).copy(alpha = 0.35f), radius * 1.08f, center, style = Stroke(radius * 0.06f))
+            drawCircle(0xFF2A5A20.toComposeColor().copy(alpha = 0.35f), radius * 1.08f, center, style = Stroke(radius * 0.06f))
         }
         2 -> {
             for (i in 0 until 8) {
                 val a = i * TAU / 8f + rotationRad
-                drawCircle(Color(0xFFE8C36A), radius * 0.06f, Offset(center.x + cos(a) * radius * 0.7f, center.y + sin(a) * radius * 0.7f))
+                drawCircle(0xFFE8C36A.toComposeColor(), radius * 0.06f, Offset(center.x + cos(a) * radius * 0.7f, center.y + sin(a) * radius * 0.7f))
             }
         }
         3 -> {
-            drawCircle(Color(0xFFFF5577).copy(alpha = 0.5f), radius * (0.28f + 0.04f * pulse), center)
-            drawCircle(Color(0xFF080810), radius * 0.12f, center)
+            drawCircle(0xFFFF5577.toComposeColor().copy(alpha = 0.5f), radius * (0.28f + 0.04f * pulse), center)
+            drawCircle(0xFF080810.toComposeColor(), radius * 0.12f, center)
         }
         4 -> {
             drawWedges(
@@ -153,40 +153,40 @@ fun DrawScope.drawBossExtras(
             )
         }
         5 -> {
-            drawCircle(Color(0xFFE8FFFF).copy(alpha = 0.25f), radius * 1.12f, center, style = Stroke(radius * 0.08f))
+            drawCircle(0xFFE8FFFF.toComposeColor().copy(alpha = 0.25f), radius * 1.12f, center, style = Stroke(radius * 0.08f))
         }
         6 -> {
-            drawCircle(Color(0xFFFF6A3D).copy(alpha = 0.35f + 0.2f * pulse), radius * 0.4f, center)
+            drawCircle(0xFFFF6A3D.toComposeColor().copy(alpha = 0.35f + 0.2f * pulse), radius * 0.4f, center)
         }
         7 -> {
             val n = 8
             for (i in 0 until n) {
                 val a = i * TAU / n + t * 0.4f
-                drawCircle(Color(0xFFE03A3A), radius * 0.07f, Offset(center.x + cos(a) * radius * 0.45f, center.y + sin(a) * radius * 0.45f))
+                drawCircle(0xFFE03A3A.toComposeColor(), radius * 0.07f, Offset(center.x + cos(a) * radius * 0.45f, center.y + sin(a) * radius * 0.45f))
             }
         }
         8 -> {
             val hand = rotationRad * 12f
             drawLine(
-                Color(0xFF2A2A28),
+                0xFF2A2A28.toComposeColor(),
                 center,
                 Offset(center.x + cos(hand) * radius * 0.72f, center.y + sin(hand) * radius * 0.72f),
                 strokeWidth = radius * 0.04f,
             )
             drawLine(
-                Color(0xFF8B1E2D),
+                0xFF8B1E2D.toComposeColor(),
                 center,
                 Offset(center.x + cos(-hand * 0.2f) * radius * 0.5f, center.y + sin(-hand * 0.2f) * radius * 0.5f),
                 strokeWidth = radius * 0.03f,
             )
         }
         9 -> {
-            drawCircle(Color(0xFF00F5FF).copy(alpha = 0.4f * pulse), radius * 1.06f, center, style = Stroke(radius * 0.03f))
-            drawCircle(Color(0xFFFF2BD6).copy(alpha = 0.25f), radius * 0.5f, center, style = Stroke(radius * 0.02f))
+            drawCircle(0xFF00F5FF.toComposeColor().copy(alpha = 0.4f * pulse), radius * 1.06f, center, style = Stroke(radius * 0.03f))
+            drawCircle(0xFFFF2BD6.toComposeColor().copy(alpha = 0.25f), radius * 0.5f, center, style = Stroke(radius * 0.02f))
         }
         else -> {
-            drawCircle(Color(0xFFB388FF).copy(alpha = 0.2f + 0.3f * pulse), radius * (0.35f * (1f - 0.15f * pulse)), center)
-            drawCircle(Color(0xFFFFE08A).copy(alpha = 0.6f), radius * 0.08f, center)
+            drawCircle(0xFFB388FF.toComposeColor().copy(alpha = 0.2f + 0.3f * pulse), radius * (0.35f * (1f - 0.15f * pulse)), center)
+            drawCircle(0xFFFFE08A.toComposeColor().copy(alpha = 0.6f), radius * 0.08f, center)
         }
     }
 }
