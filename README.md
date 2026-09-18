@@ -1,46 +1,22 @@
-# Hello World
+# Dino
 
-A minimal native Android "Hello, World!" app built with **Kotlin + Jetpack Compose**.
+Chrome-style endless runner for Android — landscape only.
 
-- Package: `com.example.helloworld`
-- minSdk 24 · targetSdk 36 · compileSdk 36
+Package: `com.dino.game` · minSdk 24 · targetSdk 36
 
-## Requirements
+## Controls
 
-- JDK 17 or 21
-- Android SDK platform 36 and build-tools 36
-- Set `ANDROID_HOME`, or create `local.properties` with:
+- **Right half of screen** — Jump (also starts / retries)
+- **Left half of screen** — Duck (hold; grounded only)
 
-```
-sdk.dir=/path/to/android-sdk
-```
-
-(Android Studio creates `local.properties` automatically.)
-
-## Build
-
-Debug APK:
-
-```bash
-./gradlew assembleDebug
-```
-
-APK path:
-
-```
-app/build/outputs/apk/debug/app-debug.apk
-```
-
-## Run on a connected phone
-
-1. Enable **Developer options** (tap Build number 7×) and **USB debugging** on the phone.
-2. Plug the phone into your computer and accept the **Allow USB debugging** prompt.
-3. Confirm it is visible: `adb devices` (should list the device as `device`).
-4. Build, install, and launch:
+## Build & run
 
 ```bash
 ./gradlew installDebug
-adb shell am start -n com.example.helloworld/.MainActivity
+adb shell am start -n com.dino.game/.MainActivity
 ```
 
-Or open the folder in Android Studio, pick your device, and press **Run**.
+## Notes
+
+- High score is saved locally and shown on the HUD and game-over screen.
+- Night mode and audio are deferred to a later phase.
