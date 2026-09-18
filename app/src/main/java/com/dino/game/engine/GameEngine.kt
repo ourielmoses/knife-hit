@@ -2,9 +2,11 @@ package com.dino.game.engine
 
 import com.dino.game.model.CloudState
 import com.dino.game.model.Constants
+import com.dino.game.model.GameEvent
 import com.dino.game.model.GameSnapshot
 import com.dino.game.model.ObstacleKind
 import com.dino.game.model.ObstacleState
+import com.dino.game.model.ParticleState
 import com.dino.game.model.PlayerState
 import com.dino.game.model.ScreenState
 import kotlin.math.max
@@ -18,7 +20,10 @@ class GameEngine(
     private var player = idlePlayer()
     private val obstacles = mutableListOf<ObstacleState>()
     private val clouds = mutableListOf<CloudState>()
+    private val particles = mutableListOf<ParticleState>()
+    private val pendingEvents = mutableListOf<GameEvent>()
     private var groundOffset = 0f
+    private var duneOffset = 0f
     private var scoreFloat = 0f
     private var speed = Constants.BASE_SPEED
     private var spawnCooldown = 1.2f
@@ -30,6 +35,9 @@ class GameEngine(
     private var worldWidth = 800f
     private var nextObstacleId = 1L
     private var nextCloudId = 1L
+    private var nextParticleId = 1L
+    private var lastMilestone = 0
+    private var wasNight = false
     private var random = Random(System.currentTimeMillis())
 
     fun setHighScore(value: Int) {
@@ -40,18 +48,26 @@ class GameEngine(
         if (width > 0f) worldWidth = width
     }
 
-    fun snapshot(): GameSnapshot = GameSnapshot(
-        screen = screen,
-        player = player,
-        obstacles = obstacles.toList(),
-        clouds = clouds.toList(),
-        groundOffset = groundOffset,
-        score = scoreFloat.toInt(),
-        highScore = highScore,
-        isNewRecord = isNewRecord,
-        speed = speed,
-        gameOverLockRemaining = gameOverLock,
-    )
+    fun snapshot(): GameSnapshot {
+        val events = pendingEvents.toList()
+        pendingEvents.clear()
+        return GameSnapshot(
+            screen = screen,
+            player = player,
+            obstacles = obstacles.toList(),
+            clouds = clouds.toList(),
+            particles = particles.toList(),
+            groundOffset = groundOffset,
+            duneOffset = duneOffset,
+            score = scoreFloat.toInt(),
+            highScore = highScore,
+            isNewRecord = isNewRecord,
+            speed = speed,
+            gameOverLockRemaining = gameOverLock,
+            isNight = isNightMode(scoreFloat.toInt()),
+            events = events,
+        )
+    }
 
     fun onJumpPress() {
         when (screen) {
@@ -67,6 +83,7 @@ class GameEngine(
                         width = Constants.PLAYER_STAND_W,
                         y = Constants.GROUND_Y - Constants.PLAYER_STAND_H,
                     )
+                    emit(GameEvent.Jump)
                 }
             }
         }
@@ -75,7 +92,6 @@ class GameEngine(
     fun onDuckChanged(held: Boolean) {
         duckHeld = held
         if (screen != ScreenState.Playing || player.dead) return
-        // Duck only while grounded — no air-duck.
         if (player.onGround) {
             applyDuckPose(held)
         }
@@ -90,6 +106,7 @@ class GameEngine(
             }
             ScreenState.GameOver -> {
                 if (gameOverLock > 0f) gameOverLock = max(0f, gameOverLock - clamped)
+                updateParticles(clamped)
                 return null
             }
             ScreenState.Playing -> return updatePlaying(clamped)
@@ -99,12 +116,13 @@ class GameEngine(
     private fun updateTitle(dt: Float) {
         ensureDecor()
         scrollDecor(dt, Constants.BASE_SPEED * 0.35f)
+        duneOffset = (duneOffset + Constants.BASE_SPEED * 0.12f * dt) % Constants.DUNE_PERIOD
         runAnimTimer += dt
         if (runAnimTimer >= Constants.RUN_FRAME_SECONDS * 2f) {
             runAnimTimer = 0f
-            // Idle blink via runFrame 0/1 swap slowly
             player = player.copy(runFrame = if (player.runFrame == 0) 1 else 0)
         }
+        updateParticles(dt)
     }
 
     private fun updatePlaying(dt: Float): Int? {
@@ -114,8 +132,23 @@ class GameEngine(
             Constants.BASE_SPEED + scoreFloat * Constants.SPEED_PER_SCORE,
         )
         scoreFloat += speed * dt * Constants.SCORE_PER_WORLD_UNIT
+        val score = scoreFloat.toInt()
+
+        // Score milestones every 100
+        val milestone = score / Constants.SCORE_MILESTONE
+        if (milestone > lastMilestone && score > 0) {
+            lastMilestone = milestone
+            emit(GameEvent.Milestone)
+        }
+
+        val night = isNightMode(score)
+        if (night != wasNight) {
+            wasNight = night
+            emit(GameEvent.NightChanged)
+        }
 
         // Physics
+        val wasAirborne = !player.onGround
         var vy = player.velocityY
         var y = player.y
         var onGround = player.onGround
@@ -128,6 +161,11 @@ class GameEngine(
                 vy = 0f
                 onGround = true
             }
+        }
+
+        if (wasAirborne && onGround) {
+            emit(GameEvent.Land)
+            spawnDust(player.x + player.width * 0.35f, Constants.GROUND_Y)
         }
 
         val ducking = onGround && duckHeld
@@ -159,11 +197,12 @@ class GameEngine(
         )
 
         groundOffset = (groundOffset + speed * dt) % 24f
+        duneOffset = (duneOffset + speed * 0.35f * dt) % Constants.DUNE_PERIOD
         scrollDecor(dt, speed)
+        updateParticles(dt)
         birdAnimTimer += dt
         val birdFrame = if ((birdAnimTimer / Constants.BIRD_FRAME_SECONDS).toInt() % 2 == 0) 0 else 1
 
-        // Move obstacles
         val iterator = obstacles.listIterator()
         while (iterator.hasNext()) {
             val o = iterator.next()
@@ -182,16 +221,70 @@ class GameEngine(
             spawnCooldown = nextSpawnDelay()
         }
 
+        // Tiny dust while running
+        if (onGround && !ducking && random.nextFloat() < 0.08f) {
+            spawnDust(player.x + player.width * 0.2f, Constants.GROUND_Y, count = 1)
+        }
+
         if (checkCollision()) {
             player = player.copy(dead = true, velocityY = 0f, ducking = false)
             screen = ScreenState.GameOver
             gameOverLock = Constants.GAME_OVER_INPUT_LOCK
-            val score = scoreFloat.toInt()
             isNewRecord = score > highScore
             if (isNewRecord) highScore = score
+            emit(GameEvent.Die)
+            spawnDust(player.x + player.width * 0.5f, Constants.GROUND_Y, count = 10)
             return score
         }
         return null
+    }
+
+    private fun isNightMode(score: Int): Boolean {
+        if (score < Constants.NIGHT_SCORE_PERIOD) return false
+        val period = score / Constants.NIGHT_SCORE_PERIOD
+        return period % 2 == 1
+    }
+
+    private fun emit(event: GameEvent) {
+        pendingEvents += event
+    }
+
+    private fun spawnDust(x: Float, y: Float, count: Int = 5) {
+        repeat(count) {
+            if (particles.size >= Constants.MAX_PARTICLES) {
+                particles.removeAt(0)
+            }
+            particles += ParticleState(
+                id = nextParticleId++,
+                x = x + random.nextFloat() * 10f - 5f,
+                y = y - random.nextFloat() * 4f,
+                vx = -speed * 0.15f + random.nextFloat() * 40f - 60f,
+                vy = -40f - random.nextFloat() * 60f,
+                life = 0.25f + random.nextFloat() * 0.25f,
+                maxLife = 0.45f,
+                size = 1.5f + random.nextFloat() * 2.5f,
+            )
+        }
+    }
+
+    private fun updateParticles(dt: Float) {
+        val it = particles.listIterator()
+        while (it.hasNext()) {
+            val p = it.next()
+            val life = p.life - dt
+            if (life <= 0f) {
+                it.remove()
+            } else {
+                it.set(
+                    p.copy(
+                        x = p.x + p.vx * dt,
+                        y = p.y + p.vy * dt,
+                        vy = p.vy + 220f * dt,
+                        life = life,
+                    ),
+                )
+            }
+        }
     }
 
     private fun playerStandingOrDuckHeight(): Float =
@@ -212,6 +305,7 @@ class GameEngine(
         screen = ScreenState.Playing
         player = idlePlayer().copy(runFrame = 0)
         obstacles.clear()
+        particles.clear()
         scoreFloat = 0f
         speed = Constants.BASE_SPEED
         spawnCooldown = 1.0f
@@ -219,6 +313,8 @@ class GameEngine(
         isNewRecord = false
         duckHeld = false
         groundOffset = 0f
+        lastMilestone = 0
+        wasNight = false
         ensureDecor(force = clouds.isEmpty())
     }
 
@@ -247,7 +343,7 @@ class GameEngine(
         val size = sizeFor(kind)
         val y = when (kind) {
             ObstacleKind.BirdHigh -> Constants.GROUND_Y - 95f
-            ObstacleKind.BirdMid -> Constants.GROUND_Y - 62f
+            ObstacleKind.BirdMid -> Constants.GROUND_Y - 70f
             ObstacleKind.BirdLow -> Constants.GROUND_Y - 42f
             else -> Constants.GROUND_Y - size.second
         }
@@ -289,11 +385,11 @@ class GameEngine(
     }
 
     private fun sizeFor(kind: ObstacleKind): Pair<Float, Float> = when (kind) {
-        ObstacleKind.CactusSmall -> 18f to 35f
-        ObstacleKind.CactusMedium -> 25f to 50f
-        ObstacleKind.CactusLarge -> 30f to 70f
-        ObstacleKind.CactusCluster2 -> 48f to 35f
-        ObstacleKind.CactusCluster3 -> 72f to 40f
+        ObstacleKind.CactusSmall -> 40f to 52f
+        ObstacleKind.CactusMedium -> 52f to 72f
+        ObstacleKind.CactusLarge -> 60f to 96f
+        ObstacleKind.CactusCluster2 -> 96f to 58f
+        ObstacleKind.CactusCluster3 -> 140f to 68f
         ObstacleKind.BirdHigh, ObstacleKind.BirdMid, ObstacleKind.BirdLow -> 46f to 34f
     }
 

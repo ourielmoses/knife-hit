@@ -17,6 +17,14 @@ enum class ObstacleKind {
     BirdLow,
 }
 
+enum class GameEvent {
+    Jump,
+    Land,
+    Die,
+    Milestone,
+    NightChanged,
+}
+
 data class PlayerState(
     val x: Float,
     val y: Float,
@@ -46,15 +54,30 @@ data class CloudState(
     val scale: Float,
 )
 
+data class ParticleState(
+    val id: Long,
+    val x: Float,
+    val y: Float,
+    val vx: Float,
+    val vy: Float,
+    val life: Float,
+    val maxLife: Float,
+    val size: Float,
+)
+
 data class GameSnapshot(
     val screen: ScreenState,
     val player: PlayerState,
     val obstacles: List<ObstacleState>,
     val clouds: List<CloudState>,
+    val particles: List<ParticleState>,
     val groundOffset: Float,
+    val duneOffset: Float,
     val score: Int,
     val highScore: Int,
     val isNewRecord: Boolean,
     val speed: Float,
     val gameOverLockRemaining: Float,
+    val isNight: Boolean,
+    val events: List<GameEvent> = emptyList(),
 )

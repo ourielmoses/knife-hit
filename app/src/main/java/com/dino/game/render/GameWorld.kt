@@ -8,6 +8,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
@@ -31,16 +33,34 @@ import com.dino.game.model.ObstacleKind
 import com.dino.game.model.ObstacleState
 import com.dino.game.model.PlayerState
 import com.dino.game.model.ScreenState
+import kotlin.math.sin
 
-private val Ink = Color(0xFF535353)
-private val Sky = Color(0xFFF7F7F7)
+private val DayInk = Color(0xFF535353)
+private val DaySky = Color(0xFFF7F7F7)
+private val NightInk = Color(0xFFD7D7D7)
+private val NightSky = Color(0xFF1B1B1B)
 
-private data class DinoSprites(
+private val InvertFilter = ColorFilter.colorMatrix(
+    ColorMatrix(
+        floatArrayOf(
+            -1f, 0f, 0f, 0f, 255f,
+            0f, -1f, 0f, 0f, 255f,
+            0f, 0f, -1f, 0f, 255f,
+            0f, 0f, 0f, 1f, 0f,
+        ),
+    ),
+)
+
+private data class WorldSprites(
     val stand: ImageBitmap,
     val run2: ImageBitmap,
     val jump: ImageBitmap,
     val duck: ImageBitmap,
     val dead: ImageBitmap,
+    val cloud: ImageBitmap,
+    val cactusSmall: ImageBitmap,
+    val cactusMedium: ImageBitmap,
+    val cactusLarge: ImageBitmap,
 )
 
 @Composable
@@ -52,59 +72,81 @@ fun GameWorld(
     val context = LocalContext.current
     val sprites = remember(context.resources) {
         val res = context.resources
-        DinoSprites(
+        WorldSprites(
             stand = ImageBitmap.imageResource(res, R.drawable.dino_cute_stand),
             run2 = ImageBitmap.imageResource(res, R.drawable.dino_cute_run2),
             jump = ImageBitmap.imageResource(res, R.drawable.dino_cute_jump),
             duck = ImageBitmap.imageResource(res, R.drawable.dino_cute_duck),
             dead = ImageBitmap.imageResource(res, R.drawable.dino_cute_dead),
+            cloud = ImageBitmap.imageResource(res, R.drawable.pixel_cloud),
+            cactusSmall = ImageBitmap.imageResource(res, R.drawable.pixel_cactus_small),
+            cactusMedium = ImageBitmap.imageResource(res, R.drawable.pixel_cactus_medium),
+            cactusLarge = ImageBitmap.imageResource(res, R.drawable.pixel_cactus_large),
         )
     }
 
     Canvas(modifier = modifier) {
         val scale = size.height / Constants.WORLD_HEIGHT
+        val ink = if (snapshot.isNight) NightInk else DayInk
+        val sky = if (snapshot.isNight) NightSky else DaySky
+        val spriteFilter = if (snapshot.isNight) InvertFilter else null
 
-        drawRect(Sky)
+        drawRect(sky)
 
-        // Ground line
+        drawDunes(snapshot.duneOffset * scale, scale, ink.copy(alpha = 0.22f))
+
         val groundY = Constants.GROUND_Y * scale
         drawLine(
-            color = Ink,
+            color = ink,
             start = Offset(0f, groundY),
             end = Offset(size.width, groundY),
             strokeWidth = 2f * scale,
         )
-        // Speckles
         val offset = snapshot.groundOffset * scale
-        var x = -offset
-        while (x < size.width + 24f * scale) {
+        var gx = -offset
+        while (gx < size.width + 24f * scale) {
             drawLine(
-                color = Ink,
-                start = Offset(x, groundY + 6f * scale),
-                end = Offset(x + 8f * scale, groundY + 6f * scale),
+                color = ink,
+                start = Offset(gx, groundY + 6f * scale),
+                end = Offset(gx + 8f * scale, groundY + 6f * scale),
                 strokeWidth = 2f * scale,
                 cap = StrokeCap.Square,
             )
             drawLine(
-                color = Ink,
-                start = Offset(x + 14f * scale, groundY + 11f * scale),
-                end = Offset(x + 18f * scale, groundY + 11f * scale),
+                color = ink,
+                start = Offset(gx + 14f * scale, groundY + 11f * scale),
+                end = Offset(gx + 18f * scale, groundY + 11f * scale),
                 strokeWidth = 2f * scale,
             )
-            x += 24f * scale
+            gx += 24f * scale
         }
 
         snapshot.clouds.forEach { cloud ->
-            drawCloud(cloud.x * scale, cloud.y * scale, cloud.scale * scale)
+            drawCloudSprite(
+                cloud.x * scale,
+                cloud.y * scale,
+                cloud.scale * scale,
+                sprites.cloud,
+                spriteFilter,
+            )
         }
 
         snapshot.obstacles.forEach { o ->
-            drawObstacle(o, scale)
+            drawObstacle(o, scale, ink, sprites, spriteFilter)
         }
 
-        drawPlayer(snapshot.player, scale, sprites)
+        drawPlayer(snapshot.player, scale, sprites, spriteFilter)
 
-        drawHud(snapshot, textMeasurer, scale)
+        snapshot.particles.forEach { p ->
+            val alpha = (p.life / p.maxLife).coerceIn(0f, 1f)
+            drawCircle(
+                color = ink.copy(alpha = alpha * 0.7f),
+                radius = p.size * scale,
+                center = Offset(p.x * scale, p.y * scale),
+            )
+        }
+
+        drawHud(snapshot, textMeasurer, scale, ink)
 
         when (snapshot.screen) {
             ScreenState.Title -> drawCenteredLabel(
@@ -112,6 +154,7 @@ fun GameWorld(
                 "TAP JUMP TO START",
                 size.width / 2f,
                 size.height * 0.42f,
+                ink = ink,
             )
             ScreenState.GameOver -> {
                 drawCenteredLabel(
@@ -120,11 +163,12 @@ fun GameWorld(
                     size.width / 2f,
                     size.height * 0.34f,
                     28,
+                    ink,
                 )
                 val scoreLine = "SCORE  ${snapshot.score.toString().padStart(5, '0')}"
                 val hiLine = "HI  ${snapshot.highScore.toString().padStart(5, '0')}"
-                drawCenteredLabel(textMeasurer, scoreLine, size.width / 2f, size.height * 0.46f)
-                drawCenteredLabel(textMeasurer, hiLine, size.width / 2f, size.height * 0.54f)
+                drawCenteredLabel(textMeasurer, scoreLine, size.width / 2f, size.height * 0.46f, ink = ink)
+                drawCenteredLabel(textMeasurer, hiLine, size.width / 2f, size.height * 0.54f, ink = ink)
                 if (snapshot.isNewRecord) {
                     drawCenteredLabel(
                         textMeasurer,
@@ -132,6 +176,7 @@ fun GameWorld(
                         size.width / 2f,
                         size.height * 0.62f,
                         16,
+                        ink,
                     )
                 }
                 if (snapshot.gameOverLockRemaining <= 0f) {
@@ -141,24 +186,44 @@ fun GameWorld(
                         size.width / 2f,
                         size.height * 0.72f,
                         14,
+                        ink,
                     )
                 }
             }
             ScreenState.Playing -> Unit
         }
 
-        // Soft side hints (non-interactive labels)
-        drawSideHints(textMeasurer)
+        drawSideHints(textMeasurer, ink)
     }
+}
+
+private fun DrawScope.drawDunes(offset: Float, scale: Float, color: Color) {
+    val groundY = Constants.GROUND_Y * scale
+    val period = Constants.DUNE_PERIOD * scale
+    var x = -offset % period - period
+    val path = Path()
+    path.moveTo(x, groundY)
+    while (x < size.width + period) {
+        val mid = x + period * 0.5f
+        val peak = groundY - (18f + 10f * sin(x * 0.01f).toFloat()) * scale
+        path.quadraticTo(mid, peak, x + period, groundY)
+        x += period
+    }
+    path.lineTo(size.width, groundY)
+    path.lineTo(size.width, groundY + 1f)
+    path.lineTo(0f, groundY + 1f)
+    path.close()
+    drawPath(path, color)
 }
 
 private fun DrawScope.drawHud(
     snapshot: GameSnapshot,
     textMeasurer: TextMeasurer,
     scale: Float,
+    ink: Color,
 ) {
     val style = TextStyle(
-        color = Ink,
+        color = ink,
         fontSize = 16.sp,
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
@@ -182,9 +247,10 @@ private fun DrawScope.drawCenteredLabel(
     cx: Float,
     cy: Float,
     sizeSp: Int = 18,
+    ink: Color,
 ) {
     val style = TextStyle(
-        color = Ink,
+        color = ink,
         fontSize = sizeSp.sp,
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
@@ -196,9 +262,9 @@ private fun DrawScope.drawCenteredLabel(
     )
 }
 
-private fun DrawScope.drawSideHints(textMeasurer: TextMeasurer) {
+private fun DrawScope.drawSideHints(textMeasurer: TextMeasurer, ink: Color) {
     val style = TextStyle(
-        color = Ink.copy(alpha = 0.28f),
+        color = ink.copy(alpha = 0.28f),
         fontSize = 11.sp,
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
@@ -212,20 +278,35 @@ private fun DrawScope.drawSideHints(textMeasurer: TextMeasurer) {
     )
 }
 
-private fun DrawScope.drawCloud(x: Float, y: Float, scale: Float) {
-    val s = 18f * scale
-    drawRoundRect(
-        color = Ink,
-        topLeft = Offset(x, y),
-        size = Size(s * 2.2f, s * 0.7f),
-        cornerRadius = CornerRadius(s * 0.4f, s * 0.4f),
-        style = Stroke(width = 2f),
+private fun DrawScope.drawCloudSprite(
+    x: Float,
+    y: Float,
+    scaleFactor: Float,
+    bitmap: ImageBitmap,
+    colorFilter: ColorFilter?,
+) {
+    // Larger on-screen clouds (was ~36px logical).
+    val base = 72f * scaleFactor.coerceIn(0.7f, 1.6f)
+    val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
+    val dh = base * 0.55f
+    val dw = dh * aspect
+    drawImage(
+        image = bitmap,
+        srcOffset = IntOffset.Zero,
+        srcSize = IntSize(bitmap.width, bitmap.height),
+        dstOffset = IntOffset(x.toInt(), y.toInt()),
+        dstSize = IntSize(dw.toInt().coerceAtLeast(1), dh.toInt().coerceAtLeast(1)),
+        colorFilter = colorFilter,
+        filterQuality = FilterQuality.None,
     )
-    drawCircle(Ink, radius = s * 0.45f, center = Offset(x + s * 0.55f, y), style = Stroke(2f))
-    drawCircle(Ink, radius = s * 0.55f, center = Offset(x + s * 1.3f, y - s * 0.15f), style = Stroke(2f))
 }
 
-private fun DrawScope.drawPlayer(player: PlayerState, scale: Float, sprites: DinoSprites) {
+private fun DrawScope.drawPlayer(
+    player: PlayerState,
+    scale: Float,
+    sprites: WorldSprites,
+    colorFilter: ColorFilter?,
+) {
     val x = player.x * scale
     val y = player.y * scale
     val w = player.width * scale
@@ -242,29 +323,10 @@ private fun DrawScope.drawPlayer(player: PlayerState, scale: Float, sprites: Din
     val srcW = bitmap.width.toFloat()
     val srcH = bitmap.height.toFloat()
 
-    // Ducking: keep the same visual height as standing (head moves forward, not shrunk).
-    val targetH = if (player.ducking) {
-        Constants.PLAYER_STAND_H * scale
-    } else {
-        h
-    }
-    val targetW = if (player.ducking) {
-        // Preserve duck sprite aspect at stand height (wider because head is forward).
-        targetH * (srcW / srcH)
-    } else {
-        val fit = minOf(w / srcW, h / srcH)
-        srcW * fit
-    }
-    val dw = if (player.ducking) targetW else {
-        val fit = minOf(w / srcW, h / srcH)
-        srcW * fit
-    }
-    val dh = if (player.ducking) targetH else {
-        val fit = minOf(w / srcW, h / srcH)
-        srcH * fit
-    }
+    val fit = minOf(w / srcW, h / srcH)
+    val dw = if (player.ducking) w * 0.98f else srcW * fit
+    val dh = if (player.ducking) h * 0.98f else srcH * fit
 
-    // Align feet to bottom of hitbox; for duck, allow sprite to be as tall as standing.
     val dx = x + (w - dw) / 2f
     val groundY = y + h
     val dy = groundY - dh
@@ -275,42 +337,68 @@ private fun DrawScope.drawPlayer(player: PlayerState, scale: Float, sprites: Din
         srcSize = IntSize(bitmap.width, bitmap.height),
         dstOffset = IntOffset(dx.toInt(), dy.toInt()),
         dstSize = IntSize(dw.toInt().coerceAtLeast(1), dh.toInt().coerceAtLeast(1)),
+        colorFilter = colorFilter,
         filterQuality = FilterQuality.None,
     )
 }
 
-private fun DrawScope.drawObstacle(o: ObstacleState, scale: Float) {
+private fun DrawScope.drawObstacle(
+    o: ObstacleState,
+    scale: Float,
+    ink: Color,
+    sprites: WorldSprites,
+    colorFilter: ColorFilter?,
+) {
     val x = o.x * scale
     val y = o.y * scale
     val w = o.width * scale
     val h = o.height * scale
     when (o.kind) {
-        ObstacleKind.BirdHigh, ObstacleKind.BirdMid, ObstacleKind.BirdLow -> drawBird(x, y, w, h, o.frame)
+        ObstacleKind.BirdHigh, ObstacleKind.BirdMid, ObstacleKind.BirdLow ->
+            drawBird(x, y, w, h, o.frame, ink)
         ObstacleKind.CactusCluster2 -> {
-            drawCactus(x, y + h * 0.15f, w * 0.42f, h * 0.85f)
-            drawCactus(x + w * 0.52f, y, w * 0.42f, h)
+            drawCactusSprite(x, y + h * 0.1f, w * 0.48f, h * 0.9f, sprites.cactusSmall, colorFilter)
+            drawCactusSprite(x + w * 0.5f, y, w * 0.48f, h, sprites.cactusMedium, colorFilter)
         }
         ObstacleKind.CactusCluster3 -> {
-            drawCactus(x, y + h * 0.2f, w * 0.28f, h * 0.8f)
-            drawCactus(x + w * 0.34f, y, w * 0.3f, h)
-            drawCactus(x + w * 0.68f, y + h * 0.12f, w * 0.28f, h * 0.88f)
+            drawCactusSprite(x, y + h * 0.15f, w * 0.3f, h * 0.85f, sprites.cactusSmall, colorFilter)
+            drawCactusSprite(x + w * 0.32f, y, w * 0.34f, h, sprites.cactusMedium, colorFilter)
+            drawCactusSprite(x + w * 0.66f, y + h * 0.08f, w * 0.32f, h * 0.92f, sprites.cactusLarge, colorFilter)
         }
-        else -> drawCactus(x, y, w, h)
+        ObstacleKind.CactusSmall ->
+            drawCactusSprite(x, y, w, h, sprites.cactusSmall, colorFilter)
+        ObstacleKind.CactusMedium ->
+            drawCactusSprite(x, y, w, h, sprites.cactusMedium, colorFilter)
+        ObstacleKind.CactusLarge ->
+            drawCactusSprite(x, y, w, h, sprites.cactusLarge, colorFilter)
     }
 }
 
-private fun DrawScope.drawCactus(x: Float, y: Float, w: Float, h: Float) {
-    val trunk = w * 0.34f
-    val cx = x + w / 2f - trunk / 2f
-    drawRect(Ink, Offset(cx, y), Size(trunk, h))
-    // Arms
-    drawRect(Ink, Offset(x, y + h * 0.35f), Size(w * 0.4f, trunk * 0.7f))
-    drawRect(Ink, Offset(x, y + h * 0.2f), Size(trunk * 0.7f, h * 0.25f))
-    drawRect(Ink, Offset(x + w * 0.55f, y + h * 0.45f), Size(w * 0.45f, trunk * 0.7f))
-    drawRect(Ink, Offset(x + w - trunk * 0.7f, y + h * 0.28f), Size(trunk * 0.7f, h * 0.28f))
+private fun DrawScope.drawCactusSprite(
+    x: Float,
+    y: Float,
+    w: Float,
+    h: Float,
+    bitmap: ImageBitmap,
+    colorFilter: ColorFilter?,
+) {
+    // Fill the obstacle hitbox fully so cactuses read large and sharp.
+    val dw = w
+    val dh = h
+    val dx = x
+    val dy = y + (h - dh)
+    drawImage(
+        image = bitmap,
+        srcOffset = IntOffset.Zero,
+        srcSize = IntSize(bitmap.width, bitmap.height),
+        dstOffset = IntOffset(dx.toInt(), dy.toInt()),
+        dstSize = IntSize(dw.toInt().coerceAtLeast(1), dh.toInt().coerceAtLeast(1)),
+        colorFilter = colorFilter,
+        filterQuality = FilterQuality.None,
+    )
 }
 
-private fun DrawScope.drawBird(x: Float, y: Float, w: Float, h: Float, frame: Int) {
+private fun DrawScope.drawBird(x: Float, y: Float, w: Float, h: Float, frame: Int, ink: Color) {
     val path = Path().apply {
         moveTo(x + w * 0.2f, y + h * 0.55f)
         lineTo(x + w * 0.55f, y + h * 0.45f)
@@ -321,21 +409,14 @@ private fun DrawScope.drawBird(x: Float, y: Float, w: Float, h: Float, frame: In
         lineTo(x + w * 0.25f, y + h * 0.7f)
         close()
     }
-    drawPath(path, Ink)
-    // Wings
+    drawPath(path, ink)
     val wingY = if (frame == 0) y + h * 0.15f else y + h * 0.55f
+    drawLine(ink, Offset(x + w * 0.4f, y + h * 0.5f), Offset(x + w * 0.15f, wingY), 3f, StrokeCap.Round)
     drawLine(
-        Ink,
-        Offset(x + w * 0.4f, y + h * 0.5f),
-        Offset(x + w * 0.15f, wingY),
-        strokeWidth = 3f,
-        cap = StrokeCap.Round,
-    )
-    drawLine(
-        Ink,
+        ink,
         Offset(x + w * 0.45f, y + h * 0.5f),
         Offset(x + w * 0.55f, wingY + h * 0.05f),
-        strokeWidth = 3f,
-        cap = StrokeCap.Round,
+        3f,
+        StrokeCap.Round,
     )
 }

@@ -5,12 +5,11 @@ object Constants {
     const val GROUND_Y = 330f
 
     const val PLAYER_X = 72f
-    // Slightly chunkier hitbox for the cute round T-Rex proportions.
     const val PLAYER_STAND_W = 56f
     const val PLAYER_STAND_H = 56f
-    // Duck keeps nearly the same height; hitbox gets wider as the head leans forward.
-    const val PLAYER_DUCK_W = 84f
-    const val PLAYER_DUCK_H = 48f
+    // Duck: lower crouch + wider (head leans forward) so mid-birds clear.
+    const val PLAYER_DUCK_W = 88f
+    const val PLAYER_DUCK_H = 28f
 
     /** Inset hitbox so near-misses feel fair (Chrome-like). */
     const val HITBOX_INSET = 4f
@@ -29,4 +28,11 @@ object Constants {
 
     const val RUN_FRAME_SECONDS = 0.1f
     const val BIRD_FRAME_SECONDS = 0.18f
+
+    /** Phase 2: night mode toggles every N score points (Chrome-like). */
+    const val NIGHT_SCORE_PERIOD = 700
+    const val SCORE_MILESTONE = 100
+
+    const val MAX_PARTICLES = 24
+    const val DUNE_PERIOD = 180f
 }

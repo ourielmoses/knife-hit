@@ -7,7 +7,17 @@ Package: `com.dino.game` · minSdk 24 · targetSdk 36
 ## Controls
 
 - **Right half of screen** — Jump (also starts / retries)
-- **Left half of screen** — Duck (hold; grounded only)
+- **Left half of screen** — Duck (hold; grounded only; head leans forward)
+- **SOUND ON/OFF** (top-left) — mutes procedural SFX
+
+## Features
+
+- Cute pixel T-Rex sprites (run / jump / duck / dead)
+- Rising difficulty, cacti + birds after score 200
+- High score saved locally; shown on HUD and game over
+- **Night mode** every 700 points (palette invert)
+- Dust particles, parallax dunes
+- Jump / land / die / milestone SFX + hit haptics
 
 ## Build & run
 
@@ -15,8 +25,3 @@ Package: `com.dino.game` · minSdk 24 · targetSdk 36
 ./gradlew installDebug
 adb shell am start -n com.dino.game/.MainActivity
 ```
-
-## Notes
-
-- High score is saved locally and shown on the HUD and game-over screen.
-- Night mode and audio are deferred to a later phase.
