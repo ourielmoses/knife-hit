@@ -13,3 +13,4 @@ captures/
 .kotlin/
 *.log
 .DS_Store
+.venv-img/

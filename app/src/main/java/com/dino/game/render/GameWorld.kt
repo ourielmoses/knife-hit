@@ -2,21 +2,29 @@ package com.dino.game.render
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
+import com.dino.game.R
 import com.dino.game.model.Constants
 import com.dino.game.model.GameSnapshot
 import com.dino.game.model.ObstacleKind
@@ -27,12 +35,32 @@ import com.dino.game.model.ScreenState
 private val Ink = Color(0xFF535353)
 private val Sky = Color(0xFFF7F7F7)
 
+private data class DinoSprites(
+    val stand: ImageBitmap,
+    val run2: ImageBitmap,
+    val jump: ImageBitmap,
+    val duck: ImageBitmap,
+    val dead: ImageBitmap,
+)
+
 @Composable
 fun GameWorld(
     snapshot: GameSnapshot,
     textMeasurer: TextMeasurer,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val sprites = remember(context.resources) {
+        val res = context.resources
+        DinoSprites(
+            stand = ImageBitmap.imageResource(res, R.drawable.dino_cute_stand),
+            run2 = ImageBitmap.imageResource(res, R.drawable.dino_cute_run2),
+            jump = ImageBitmap.imageResource(res, R.drawable.dino_cute_jump),
+            duck = ImageBitmap.imageResource(res, R.drawable.dino_cute_duck),
+            dead = ImageBitmap.imageResource(res, R.drawable.dino_cute_dead),
+        )
+    }
+
     Canvas(modifier = modifier) {
         val scale = size.height / Constants.WORLD_HEIGHT
 
@@ -74,7 +102,7 @@ fun GameWorld(
             drawObstacle(o, scale)
         }
 
-        drawPlayer(snapshot.player, scale)
+        drawPlayer(snapshot.player, scale, sprites)
 
         drawHud(snapshot, textMeasurer, scale)
 
@@ -197,93 +225,58 @@ private fun DrawScope.drawCloud(x: Float, y: Float, scale: Float) {
     drawCircle(Ink, radius = s * 0.55f, center = Offset(x + s * 1.3f, y - s * 0.15f), style = Stroke(2f))
 }
 
-private fun DrawScope.drawPlayer(player: PlayerState, scale: Float) {
+private fun DrawScope.drawPlayer(player: PlayerState, scale: Float, sprites: DinoSprites) {
     val x = player.x * scale
     val y = player.y * scale
     val w = player.width * scale
     val h = player.height * scale
 
-    if (player.dead) {
-        // Dead: body + X eyes
-        drawRoundRect(Ink, Offset(x, y), Size(w, h), CornerRadius(4f, 4f), style = Stroke(2.5f))
-        drawLine(Ink, Offset(x + w * 0.55f, y + h * 0.2f), Offset(x + w * 0.75f, y + h * 0.35f), 2.5f)
-        drawLine(Ink, Offset(x + w * 0.75f, y + h * 0.2f), Offset(x + w * 0.55f, y + h * 0.35f), 2.5f)
-        return
+    val bitmap = when {
+        player.dead -> sprites.dead
+        player.ducking -> sprites.duck
+        !player.onGround -> sprites.jump
+        player.runFrame == 1 -> sprites.run2
+        else -> sprites.stand
     }
 
-    if (player.ducking) {
-        drawDinoDuck(x, y, w, h)
+    val srcW = bitmap.width.toFloat()
+    val srcH = bitmap.height.toFloat()
+
+    // Ducking: keep the same visual height as standing (head moves forward, not shrunk).
+    val targetH = if (player.ducking) {
+        Constants.PLAYER_STAND_H * scale
     } else {
-        drawDinoStand(x, y, w, h, player.runFrame, !player.onGround)
+        h
     }
-}
+    val targetW = if (player.ducking) {
+        // Preserve duck sprite aspect at stand height (wider because head is forward).
+        targetH * (srcW / srcH)
+    } else {
+        val fit = minOf(w / srcW, h / srcH)
+        srcW * fit
+    }
+    val dw = if (player.ducking) targetW else {
+        val fit = minOf(w / srcW, h / srcH)
+        srcW * fit
+    }
+    val dh = if (player.ducking) targetH else {
+        val fit = minOf(w / srcW, h / srcH)
+        srcH * fit
+    }
 
-private fun DrawScope.drawDinoStand(
-    x: Float,
-    y: Float,
-    w: Float,
-    h: Float,
-    frame: Int,
-    jumping: Boolean,
-) {
-    val path = Path().apply {
-        // Simplified Chrome-like silhouette
-        moveTo(x + w * 0.15f, y + h)
-        lineTo(x + w * 0.15f, y + h * 0.45f)
-        lineTo(x + w * 0.05f, y + h * 0.55f)
-        lineTo(x, y + h * 0.45f)
-        lineTo(x + w * 0.2f, y + h * 0.35f)
-        lineTo(x + w * 0.35f, y + h * 0.15f)
-        lineTo(x + w * 0.55f, y)
-        lineTo(x + w * 0.95f, y)
-        lineTo(x + w, y + h * 0.12f)
-        lineTo(x + w * 0.78f, y + h * 0.12f)
-        lineTo(x + w * 0.78f, y + h * 0.28f)
-        lineTo(x + w * 0.55f, y + h * 0.28f)
-        lineTo(x + w * 0.5f, y + h * 0.55f)
-        // Legs
-        if (jumping) {
-            lineTo(x + w * 0.45f, y + h)
-            lineTo(x + w * 0.35f, y + h)
-            lineTo(x + w * 0.4f, y + h * 0.7f)
-            lineTo(x + w * 0.3f, y + h)
-            lineTo(x + w * 0.2f, y + h)
-        } else if (frame == 0) {
-            lineTo(x + w * 0.42f, y + h)
-            lineTo(x + w * 0.32f, y + h)
-            lineTo(x + w * 0.38f, y + h * 0.7f)
-            lineTo(x + w * 0.28f, y + h * 0.85f)
-            lineTo(x + w * 0.18f, y + h * 0.85f)
-        } else {
-            lineTo(x + w * 0.48f, y + h * 0.85f)
-            lineTo(x + w * 0.38f, y + h * 0.85f)
-            lineTo(x + w * 0.4f, y + h * 0.7f)
-            lineTo(x + w * 0.3f, y + h)
-            lineTo(x + w * 0.2f, y + h)
-        }
-        close()
-    }
-    drawPath(path, Ink)
-    // Eye
-    drawRect(Sky, Offset(x + w * 0.72f, y + h * 0.06f), Size(w * 0.08f, h * 0.08f))
-}
+    // Align feet to bottom of hitbox; for duck, allow sprite to be as tall as standing.
+    val dx = x + (w - dw) / 2f
+    val groundY = y + h
+    val dy = groundY - dh
 
-private fun DrawScope.drawDinoDuck(x: Float, y: Float, w: Float, h: Float) {
-    val path = Path().apply {
-        moveTo(x, y + h)
-        lineTo(x, y + h * 0.4f)
-        lineTo(x + w * 0.55f, y)
-        lineTo(x + w * 0.95f, y + h * 0.15f)
-        lineTo(x + w, y + h * 0.35f)
-        lineTo(x + w * 0.7f, y + h * 0.35f)
-        lineTo(x + w * 0.65f, y + h)
-        lineTo(x + w * 0.45f, y + h)
-        lineTo(x + w * 0.4f, y + h * 0.55f)
-        lineTo(x + w * 0.25f, y + h)
-        close()
-    }
-    drawPath(path, Ink)
-    drawRect(Sky, Offset(x + w * 0.78f, y + h * 0.18f), Size(w * 0.06f, h * 0.14f))
+    drawImage(
+        image = bitmap,
+        srcOffset = IntOffset.Zero,
+        srcSize = IntSize(bitmap.width, bitmap.height),
+        dstOffset = IntOffset(dx.toInt(), dy.toInt()),
+        dstSize = IntSize(dw.toInt().coerceAtLeast(1), dh.toInt().coerceAtLeast(1)),
+        filterQuality = FilterQuality.None,
+    )
 }
 
 private fun DrawScope.drawObstacle(o: ObstacleState, scale: Float) {

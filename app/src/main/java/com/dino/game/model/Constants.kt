@@ -5,10 +5,12 @@ object Constants {
     const val GROUND_Y = 330f
 
     const val PLAYER_X = 72f
-    const val PLAYER_STAND_W = 44f
-    const val PLAYER_STAND_H = 47f
-    const val PLAYER_DUCK_W = 59f
-    const val PLAYER_DUCK_H = 25f
+    // Slightly chunkier hitbox for the cute round T-Rex proportions.
+    const val PLAYER_STAND_W = 56f
+    const val PLAYER_STAND_H = 56f
+    // Duck keeps nearly the same height; hitbox gets wider as the head leans forward.
+    const val PLAYER_DUCK_W = 84f
+    const val PLAYER_DUCK_H = 48f
 
     /** Inset hitbox so near-misses feel fair (Chrome-like). */
     const val HITBOX_INSET = 4f
