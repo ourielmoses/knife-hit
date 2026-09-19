@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.dino.game.model.SkinId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -13,6 +15,7 @@ private val Context.dataStore by preferencesDataStore(name = "dino_prefs")
 class SettingsStore(private val context: Context) {
     private val highScoreKey = intPreferencesKey("high_score")
     private val mutedKey = booleanPreferencesKey("muted")
+    private val skinKey = stringPreferencesKey("skin_id")
 
     val highScore: Flow<Int> = context.dataStore.data.map { prefs ->
         prefs[highScoreKey] ?: 0
@@ -20,6 +23,10 @@ class SettingsStore(private val context: Context) {
 
     val muted: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[mutedKey] ?: false
+    }
+
+    val selectedSkin: Flow<SkinId> = context.dataStore.data.map { prefs ->
+        SkinId.fromId(prefs[skinKey])
     }
 
     suspend fun saveIfBest(score: Int): Int {
@@ -35,6 +42,12 @@ class SettingsStore(private val context: Context) {
     suspend fun setMuted(value: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[mutedKey] = value
+        }
+    }
+
+    suspend fun setSkin(skin: SkinId) {
+        context.dataStore.edit { prefs ->
+            prefs[skinKey] = skin.id
         }
     }
 }

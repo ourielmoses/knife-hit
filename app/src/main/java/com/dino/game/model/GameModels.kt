@@ -3,6 +3,7 @@ package com.dino.game.model
 enum class ScreenState {
     Title,
     Playing,
+    Paused,
     GameOver,
 }
 
@@ -78,6 +79,10 @@ data class GameSnapshot(
     val isNewRecord: Boolean,
     val speed: Float,
     val gameOverLockRemaining: Float,
+    /** Seconds left showing only the dead pose before GAME OVER text. */
+    val deathPoseRemaining: Float = 0f,
     val isNight: Boolean,
+    /** 0 = full day, 1 = full night; lerps for smooth transitions. */
+    val nightBlend: Float = 0f,
     val events: List<GameEvent> = emptyList(),
 )

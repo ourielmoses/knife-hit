@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import com.dino.game.R
+import com.dino.game.model.SkinId
 import com.dino.game.model.Constants
 import com.dino.game.model.GameSnapshot
 import com.dino.game.model.ObstacleKind
@@ -40,23 +41,8 @@ private val DaySky = Color(0xFFF7F7F7)
 private val NightInk = Color(0xFFD7D7D7)
 private val NightSky = Color(0xFF1B1B1B)
 
-private val InvertFilter = ColorFilter.colorMatrix(
-    ColorMatrix(
-        floatArrayOf(
-            -1f, 0f, 0f, 0f, 255f,
-            0f, -1f, 0f, 0f, 255f,
-            0f, 0f, -1f, 0f, 255f,
-            0f, 0f, 0f, 1f, 0f,
-        ),
-    ),
-)
-
 private data class WorldSprites(
-    val stand: ImageBitmap,
-    val run2: ImageBitmap,
-    val jump: ImageBitmap,
-    val duck: ImageBitmap,
-    val dead: ImageBitmap,
+    val player: SkinSprites,
     val cloud: ImageBitmap,
     val cactusSmall: ImageBitmap,
     val cactusMedium: ImageBitmap,
@@ -67,17 +53,14 @@ private data class WorldSprites(
 fun GameWorld(
     snapshot: GameSnapshot,
     textMeasurer: TextMeasurer,
+    skin: SkinId,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val sprites = remember(context.resources) {
+    val sprites = remember(context.resources, skin) {
         val res = context.resources
         WorldSprites(
-            stand = ImageBitmap.imageResource(res, R.drawable.dino_cute_stand),
-            run2 = ImageBitmap.imageResource(res, R.drawable.dino_cute_run2),
-            jump = ImageBitmap.imageResource(res, R.drawable.dino_cute_jump),
-            duck = ImageBitmap.imageResource(res, R.drawable.dino_cute_duck),
-            dead = ImageBitmap.imageResource(res, R.drawable.dino_cute_dead),
+            player = SkinSpriteLoader.load(res, skin),
             cloud = ImageBitmap.imageResource(res, R.drawable.pixel_cloud),
             cactusSmall = ImageBitmap.imageResource(res, R.drawable.pixel_cactus_small),
             cactusMedium = ImageBitmap.imageResource(res, R.drawable.pixel_cactus_medium),
@@ -87,9 +70,10 @@ fun GameWorld(
 
     Canvas(modifier = modifier) {
         val scale = size.height / Constants.WORLD_HEIGHT
-        val ink = if (snapshot.isNight) NightInk else DayInk
-        val sky = if (snapshot.isNight) NightSky else DaySky
-        val spriteFilter = if (snapshot.isNight) InvertFilter else null
+        val t = snapshot.nightBlend.coerceIn(0f, 1f)
+        val ink = lerpColor(DayInk, NightInk, t)
+        val sky = lerpColor(DaySky, NightSky, t)
+        val spriteFilter = nightBlendFilter(t)
 
         drawRect(sky)
 
@@ -146,55 +130,110 @@ fun GameWorld(
             )
         }
 
-        drawHud(snapshot, textMeasurer, scale, ink)
+        if (
+            snapshot.screen == ScreenState.Playing ||
+            snapshot.screen == ScreenState.Paused ||
+            snapshot.screen == ScreenState.GameOver
+        ) {
+            drawHud(snapshot, textMeasurer, scale, ink)
+        }
 
         when (snapshot.screen) {
-            ScreenState.Title -> drawCenteredLabel(
-                textMeasurer,
-                "TAP JUMP TO START",
-                size.width / 2f,
-                size.height * 0.42f,
-                ink = ink,
-            )
-            ScreenState.GameOver -> {
+            ScreenState.Title -> {
+                // Menu chrome is drawn in Compose (Play / Skins). Soft title only.
                 drawCenteredLabel(
                     textMeasurer,
-                    "GAME OVER",
+                    "DINO",
                     size.width / 2f,
-                    size.height * 0.34f,
-                    28,
+                    size.height * 0.28f,
+                    36,
                     ink,
                 )
-                val scoreLine = "SCORE  ${snapshot.score.toString().padStart(5, '0')}"
-                val hiLine = "HI  ${snapshot.highScore.toString().padStart(5, '0')}"
-                drawCenteredLabel(textMeasurer, scoreLine, size.width / 2f, size.height * 0.46f, ink = ink)
-                drawCenteredLabel(textMeasurer, hiLine, size.width / 2f, size.height * 0.54f, ink = ink)
-                if (snapshot.isNewRecord) {
+                if (snapshot.highScore > 0) {
                     drawCenteredLabel(
                         textMeasurer,
-                        "NEW RECORD!",
+                        "HI  ${snapshot.highScore.toString().padStart(5, '0')}",
                         size.width / 2f,
-                        size.height * 0.62f,
+                        size.height * 0.38f,
                         16,
                         ink,
                     )
                 }
-                if (snapshot.gameOverLockRemaining <= 0f) {
+            }
+            ScreenState.GameOver -> {
+                // Hold on lying dead pose; hide GAME OVER until landed + pose timer.
+                if (snapshot.deathPoseRemaining > 0f || !snapshot.player.onGround) {
+                    Unit
+                } else {
                     drawCenteredLabel(
                         textMeasurer,
-                        "TAP JUMP TO RETRY",
+                        "GAME OVER",
                         size.width / 2f,
-                        size.height * 0.72f,
-                        14,
+                        size.height * 0.34f,
+                        28,
                         ink,
                     )
+                    val scoreLine = "SCORE  ${snapshot.score.toString().padStart(5, '0')}"
+                    val hiLine = "HI  ${snapshot.highScore.toString().padStart(5, '0')}"
+                    drawCenteredLabel(textMeasurer, scoreLine, size.width / 2f, size.height * 0.46f, ink = ink)
+                    drawCenteredLabel(textMeasurer, hiLine, size.width / 2f, size.height * 0.54f, ink = ink)
+                    if (snapshot.isNewRecord) {
+                        drawCenteredLabel(
+                            textMeasurer,
+                            "NEW RECORD!",
+                            size.width / 2f,
+                            size.height * 0.62f,
+                            16,
+                            ink,
+                        )
+                    }
+                    if (snapshot.gameOverLockRemaining <= 0f) {
+                        drawCenteredLabel(
+                            textMeasurer,
+                            "TAP JUMP TO RETRY",
+                            size.width / 2f,
+                            size.height * 0.72f,
+                            14,
+                            ink,
+                        )
+                    }
                 }
             }
-            ScreenState.Playing -> Unit
+            ScreenState.Playing, ScreenState.Paused -> Unit
         }
 
-        drawSideHints(textMeasurer, ink)
+        if (snapshot.screen == ScreenState.Playing) {
+            drawSideHints(textMeasurer, ink)
+        }
     }
+}
+
+private fun lerpColor(a: Color, b: Color, t: Float): Color {
+    val u = t.coerceIn(0f, 1f)
+    return Color(
+        red = a.red + (b.red - a.red) * u,
+        green = a.green + (b.green - a.green) * u,
+        blue = a.blue + (b.blue - a.blue) * u,
+        alpha = a.alpha + (b.alpha - a.alpha) * u,
+    )
+}
+
+/** Partial invert so sprites fade smoothly with the night blend. */
+private fun nightBlendFilter(t: Float): ColorFilter? {
+    if (t <= 0.001f) return null
+    val u = t.coerceIn(0f, 1f)
+    val m = 1f - 2f * u
+    val o = 255f * u
+    return ColorFilter.colorMatrix(
+        ColorMatrix(
+            floatArrayOf(
+                m, 0f, 0f, 0f, o,
+                0f, m, 0f, 0f, o,
+                0f, 0f, m, 0f, o,
+                0f, 0f, 0f, 1f, 0f,
+            ),
+        ),
+    )
 }
 
 private fun DrawScope.drawDunes(offset: Float, scale: Float, color: Color) {
@@ -313,19 +352,29 @@ private fun DrawScope.drawPlayer(
     val h = player.height * scale
 
     val bitmap = when {
-        player.dead -> sprites.dead
-        player.ducking -> sprites.duck
-        !player.onGround -> sprites.jump
-        player.runFrame == 1 -> sprites.run2
-        else -> sprites.stand
+        // Airborne death: keep falling with the jump frame until landing.
+        player.dead && !player.onGround -> sprites.player.jump
+        player.dead -> sprites.player.dead
+        player.ducking -> sprites.player.duck
+        !player.onGround -> sprites.player.jump
+        player.runFrame == 1 -> sprites.player.run2
+        else -> sprites.player.stand
     }
 
     val srcW = bitmap.width.toFloat()
     val srcH = bitmap.height.toFloat()
 
     val fit = minOf(w / srcW, h / srcH)
-    val dw = if (player.ducking) w * 0.98f else srcW * fit
-    val dh = if (player.ducking) h * 0.98f else srcH * fit
+    val dw = when {
+        player.ducking -> w * 0.98f
+        player.dead && player.onGround -> w * 0.98f
+        else -> srcW * fit
+    }
+    val dh = when {
+        player.ducking -> h * 0.98f
+        player.dead && player.onGround -> h * 0.98f
+        else -> srcH * fit
+    }
 
     val dx = x + (w - dw) / 2f
     val groundY = y + h

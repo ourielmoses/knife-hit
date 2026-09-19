@@ -30,6 +30,7 @@ class GameEngine(
     private var runAnimTimer = 0f
     private var birdAnimTimer = 0f
     private var gameOverLock = 0f
+    private var deathPoseRemaining = 0f
     private var isNewRecord = false
     private var duckHeld = false
     private var worldWidth = 800f
@@ -38,6 +39,8 @@ class GameEngine(
     private var nextParticleId = 1L
     private var lastMilestone = 0
     private var wasNight = false
+    /** 0 = day, 1 = night — smoothed toward target each frame. */
+    private var nightBlend = 0f
     private var random = Random(System.currentTimeMillis())
 
     fun setHighScore(value: Int) {
@@ -64,14 +67,25 @@ class GameEngine(
             isNewRecord = isNewRecord,
             speed = speed,
             gameOverLockRemaining = gameOverLock,
-            isNight = isNightMode(scoreFloat.toInt()),
+            deathPoseRemaining = deathPoseRemaining,
+            isNight = nightBlend > 0.5f,
+            nightBlend = nightBlend,
             events = events,
         )
     }
 
-    fun onJumpPress() {
+    /** Title menu Play button (and optional retry). */
+    fun onPlayPress() {
         when (screen) {
             ScreenState.Title -> startRun()
+            ScreenState.GameOver -> if (gameOverLock <= 0f) startRun()
+            ScreenState.Playing, ScreenState.Paused -> Unit
+        }
+    }
+
+    fun onJumpPress() {
+        when (screen) {
+            ScreenState.Title, ScreenState.Paused -> Unit
             ScreenState.GameOver -> if (gameOverLock <= 0f) startRun()
             ScreenState.Playing -> {
                 if (player.onGround && !player.dead) {
@@ -97,19 +111,83 @@ class GameEngine(
         }
     }
 
+    fun pause() {
+        if (screen != ScreenState.Playing) return
+        screen = ScreenState.Paused
+        duckHeld = false
+        if (player.onGround && !player.dead) applyDuckPose(false)
+    }
+
+    fun resume() {
+        if (screen == ScreenState.Paused) screen = ScreenState.Playing
+    }
+
+    /** Return to the title screen as if the app just opened. */
+    fun goHome() {
+        screen = ScreenState.Title
+        player = idlePlayer()
+        obstacles.clear()
+        particles.clear()
+        scoreFloat = 0f
+        speed = Constants.BASE_SPEED
+        spawnCooldown = 1.2f
+        gameOverLock = 0f
+        deathPoseRemaining = 0f
+        isNewRecord = false
+        duckHeld = false
+        groundOffset = 0f
+        duneOffset = 0f
+        lastMilestone = 0
+        wasNight = false
+        nightBlend = 0f
+        ensureDecor(force = true)
+    }
+
     fun update(dt: Float): Int? {
         val clamped = dt.coerceIn(0f, 0.05f)
+        updateNightBlend(clamped)
         when (screen) {
             ScreenState.Title -> {
                 updateTitle(clamped)
                 return null
             }
+            ScreenState.Paused -> return null
             ScreenState.GameOver -> {
-                if (gameOverLock > 0f) gameOverLock = max(0f, gameOverLock - clamped)
+                updateDeathFall(clamped)
+                if (player.onGround) {
+                    val clear = !overlapsGroundCactus(player.x, player.width, player.height)
+                    if (clear) {
+                        // Arm pose timer once we've finished sliding off a cactus.
+                        if (deathPoseRemaining > 100f || gameOverLock > 100f) {
+                            deathPoseRemaining = Constants.DEATH_POSE_SECONDS
+                            gameOverLock = Constants.DEATH_POSE_SECONDS + 0.4f
+                        }
+                        if (gameOverLock > 0f) gameOverLock = max(0f, gameOverLock - clamped)
+                        if (deathPoseRemaining > 0f) {
+                            deathPoseRemaining = max(0f, deathPoseRemaining - clamped)
+                        }
+                    }
+                }
                 updateParticles(clamped)
                 return null
             }
             ScreenState.Playing -> return updatePlaying(clamped)
+        }
+    }
+
+    private fun updateNightBlend(dt: Float) {
+        val target = if (
+            (screen == ScreenState.Playing || screen == ScreenState.Paused) &&
+            isNightMode(scoreFloat.toInt())
+        ) {
+            1f
+        } else {
+            0f
+        }
+        if (target > nightBlend) {
+            nightBlend = min(1f, nightBlend + dt / Constants.NIGHT_BLEND_SECONDS)
+        } else if (target < nightBlend) {
+            nightBlend = max(0f, nightBlend - dt / Constants.NIGHT_BLEND_SECONDS)
         }
     }
 
@@ -227,16 +305,159 @@ class GameEngine(
         }
 
         if (checkCollision()) {
-            player = player.copy(dead = true, velocityY = 0f, ducking = false)
-            screen = ScreenState.GameOver
-            gameOverLock = Constants.GAME_OVER_INPUT_LOCK
-            isNewRecord = score > highScore
-            if (isNewRecord) highScore = score
-            emit(GameEvent.Die)
-            spawnDust(player.x + player.width * 0.5f, Constants.GROUND_Y, count = 10)
+            beginDeath()
             return score
         }
         return null
+    }
+
+    private fun beginDeath() {
+        val score = scoreFloat.toInt()
+        val wasAirborne = !player.onGround
+        if (wasAirborne) {
+            // Keep air position/velocity; fall with gravity, then lie down.
+            player = player.copy(
+                dead = true,
+                ducking = false,
+                width = Constants.PLAYER_STAND_W,
+                height = Constants.PLAYER_STAND_H,
+            )
+            gameOverLock = Float.MAX_VALUE
+            deathPoseRemaining = Float.MAX_VALUE
+        } else {
+            settleDeadOnGround(playDust = true)
+        }
+        screen = ScreenState.GameOver
+        isNewRecord = score > highScore
+        if (isNewRecord) highScore = score
+        emit(GameEvent.Die)
+    }
+
+    /**
+     * Gravity while dead in the air; slowly slide off any cactus under the
+     * fall / landing so the lying pose isn't stuck inside an obstacle.
+     */
+    private fun updateDeathFall(dt: Float) {
+        if (!player.dead) return
+
+        slideOffCacti(dt)
+
+        if (player.onGround) return
+
+        var vy = player.velocityY + Constants.GRAVITY * dt
+        var y = player.y + vy * dt
+        val groundTop = Constants.GROUND_Y - Constants.PLAYER_STAND_H
+        if (y >= groundTop) {
+            player = player.copy(
+                y = Constants.GROUND_Y - Constants.PLAYER_DEAD_H,
+                velocityY = 0f,
+                onGround = true,
+                width = Constants.PLAYER_DEAD_W,
+                height = Constants.PLAYER_DEAD_H,
+            )
+            settleDeadOnGround(playDust = true)
+            // Keep sliding this frame if we landed on a cactus.
+            slideOffCacti(dt)
+        } else {
+            player = player.copy(y = y, velocityY = vy, onGround = false)
+        }
+    }
+
+    /** Ease the dino left/right away from ground cacti during the death anim. */
+    private fun slideOffCacti(dt: Float) {
+        val w = if (player.onGround) Constants.PLAYER_DEAD_W else player.width
+        val h = if (player.onGround) Constants.PLAYER_DEAD_H else player.height
+        if (!overlapsGroundCactus(player.x, w, h)) return
+
+        val targetX = clearDeathX(player.x, w) ?: return
+        val maxStep = Constants.DEATH_SLIDE_SPEED * dt
+        val nextX = player.x + (targetX - player.x).coerceIn(-maxStep, maxStep)
+        player = player.copy(
+            x = nextX.coerceAtLeast(8f),
+            width = w,
+            height = h,
+            y = if (player.onGround) Constants.GROUND_Y - h else player.y,
+        )
+    }
+
+    private fun overlapsGroundCactus(x: Float, w: Float, h: Float): Boolean {
+        val y = if (player.onGround) {
+            Constants.GROUND_Y - h
+        } else {
+            player.y
+        }
+        // While falling, probe the ground landing footprint so we ease aside early.
+        val py = if (!player.onGround) Constants.GROUND_Y - Constants.PLAYER_DEAD_H else y
+        val ph = if (!player.onGround) Constants.PLAYER_DEAD_H else h
+        val pw = if (!player.onGround) Constants.PLAYER_DEAD_W else w
+        for (o in obstacles) {
+            if (o.kind.isBird()) continue
+            if (rectsOverlap(x, py, pw, ph, o.x, o.y, o.width, o.height)) return true
+        }
+        return false
+    }
+
+    private fun clearDeathX(fromX: Float, width: Float): Float? {
+        val groundY = Constants.GROUND_Y - Constants.PLAYER_DEAD_H
+        val h = Constants.PLAYER_DEAD_H
+        val blockers = obstacles.filter { o ->
+            !o.kind.isBird() &&
+                rectsOverlap(fromX, groundY, width, h, o.x, o.y, o.width, o.height)
+        }
+        if (blockers.isEmpty()) return null
+
+        // Prefer easing left (behind the cactus); fall back to the right gap.
+        var bestLeft = fromX
+        var bestRight = fromX
+        var hasLeft = false
+        var hasRight = false
+        for (o in blockers) {
+            val left = o.x - width - 6f
+            val right = o.x + o.width + 6f
+            if (!hasLeft || left < bestLeft) {
+                bestLeft = left
+                hasLeft = true
+            }
+            if (!hasRight || right > bestRight) {
+                bestRight = right
+                hasRight = true
+            }
+        }
+        val leftTarget = bestLeft.coerceAtLeast(8f)
+        val rightTarget = bestRight
+        return if (kotlin.math.abs(leftTarget - fromX) <= kotlin.math.abs(rightTarget - fromX) + 20f) {
+            leftTarget
+        } else {
+            rightTarget
+        }
+    }
+
+    private fun rectsOverlap(
+        ax: Float, ay: Float, aw: Float, ah: Float,
+        bx: Float, by: Float, bw: Float, bh: Float,
+    ): Boolean = ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by
+
+    private fun settleDeadOnGround(playDust: Boolean) {
+        player = player.copy(
+            dead = true,
+            ducking = false,
+            onGround = true,
+            velocityY = 0f,
+            width = Constants.PLAYER_DEAD_W,
+            height = Constants.PLAYER_DEAD_H,
+            y = Constants.GROUND_Y - Constants.PLAYER_DEAD_H,
+        )
+        // Don't start the GAME OVER chrome timer until clear of cacti.
+        if (overlapsGroundCactus(player.x, player.width, player.height)) {
+            gameOverLock = Float.MAX_VALUE
+            deathPoseRemaining = Float.MAX_VALUE
+        } else {
+            gameOverLock = Constants.DEATH_POSE_SECONDS + 0.4f
+            deathPoseRemaining = Constants.DEATH_POSE_SECONDS
+        }
+        if (playDust) {
+            spawnDust(player.x + player.width * 0.5f, Constants.GROUND_Y, count = 12)
+        }
     }
 
     private fun isNightMode(score: Int): Boolean {
@@ -310,11 +531,13 @@ class GameEngine(
         speed = Constants.BASE_SPEED
         spawnCooldown = 1.0f
         gameOverLock = 0f
+        deathPoseRemaining = 0f
         isNewRecord = false
         duckHeld = false
         groundOffset = 0f
         lastMilestone = 0
         wasNight = false
+        nightBlend = 0f
         ensureDecor(force = clouds.isEmpty())
     }
 
@@ -359,12 +582,32 @@ class GameEngine(
 
     private fun pickKind(score: Int): ObstacleKind {
         val birdsUnlocked = score >= Constants.BIRD_UNLOCK_SCORE
+        val bigCactusUnlocked = score >= Constants.BIG_CACTUS_UNLOCK_SCORE
         val roll = random.nextFloat()
         return when {
             birdsUnlocked && roll < 0.18f -> when (random.nextInt(3)) {
                 0 -> ObstacleKind.BirdHigh
                 1 -> ObstacleKind.BirdMid
                 else -> ObstacleKind.BirdLow
+            }
+            // Before 800: no tall cactus / wide triple clusters.
+            !bigCactusUnlocked -> when {
+                score < 50 -> ObstacleKind.CactusSmall
+                score < 150 -> if (roll < 0.55f) {
+                    ObstacleKind.CactusSmall
+                } else {
+                    ObstacleKind.CactusMedium
+                }
+                score < 400 -> when {
+                    roll < 0.4f -> ObstacleKind.CactusSmall
+                    roll < 0.75f -> ObstacleKind.CactusMedium
+                    else -> ObstacleKind.CactusCluster2
+                }
+                else -> when {
+                    roll < 0.3f -> ObstacleKind.CactusSmall
+                    roll < 0.65f -> ObstacleKind.CactusMedium
+                    else -> ObstacleKind.CactusCluster2
+                }
             }
             score < 50 -> ObstacleKind.CactusSmall
             score < 150 -> if (roll < 0.55f) ObstacleKind.CactusSmall else ObstacleKind.CactusMedium
@@ -394,21 +637,43 @@ class GameEngine(
     }
 
     private fun checkCollision(): Boolean {
-        val inset = Constants.HITBOX_INSET
-        val px = player.x + inset
-        val py = player.y + inset
-        val pw = player.width - inset * 2f
-        val ph = player.height - inset * 2f
+        val (px, py, pw, ph) = playerHitbox()
+        val inset = Constants.OBSTACLE_HIT_INSET
         for (o in obstacles) {
-            val ox = o.x + inset * 0.5f
-            val oy = o.y + inset * 0.5f
-            val ow = o.width - inset
-            val oh = o.height - inset
+            val ox = o.x + inset
+            val oy = o.y + inset
+            val ow = (o.width - inset * 2f).coerceAtLeast(8f)
+            val oh = (o.height - inset * 2f).coerceAtLeast(8f)
             if (px < ox + ow && px + pw > ox && py < oy + oh && py + ph > oy) {
                 return true
             }
         }
         return false
+    }
+
+    /** Axis-aligned box trimmed to the dino body (not the full sprite rectangle). */
+    private fun playerHitbox(): FloatArray {
+        val left: Float
+        val top: Float
+        val right: Float
+        val bottom: Float
+        if (player.ducking) {
+            left = player.x + Constants.PLAYER_DUCK_HIT_INSET_L
+            right = player.x + player.width - Constants.PLAYER_DUCK_HIT_INSET_R
+            top = player.y + Constants.PLAYER_DUCK_HIT_INSET_T
+            bottom = player.y + player.height - Constants.PLAYER_DUCK_HIT_INSET_B
+        } else {
+            left = player.x + Constants.PLAYER_HIT_INSET_L
+            right = player.x + player.width - Constants.PLAYER_HIT_INSET_R
+            top = player.y + Constants.PLAYER_HIT_INSET_T
+            bottom = player.y + player.height - Constants.PLAYER_HIT_INSET_B
+        }
+        return floatArrayOf(
+            left,
+            top,
+            (right - left).coerceAtLeast(8f),
+            (bottom - top).coerceAtLeast(8f),
+        )
     }
 
     private fun ensureDecor(force: Boolean = false) {
